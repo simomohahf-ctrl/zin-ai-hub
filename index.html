@@ -482,37 +482,66 @@ async function getAIResponse(userMsg) {
     { role: 'user', content: userMsg }
   ];
 
-  try {
-    if (settings.model === 'groq' && settings.groqKey) {
-      // Groq API
+  // Try Groq if configured
+  if (settings.model === 'groq' && settings.groqKey) {
+    try {
       const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.groqKey}` },
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + settings.groqKey },
         body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages, temperature: 0.7, max_tokens: 500 })
       });
-      if (!res.ok) throw new Error('Groq API error: ' + res.status);
-      const data = await res.json();
-      return data.choices[0].message.content;
-    } else {
-      // Pollinations.ai (free, no key)
-      const model = settings.model === 'llama' ? 'llama' : 'openai';
-      const prompt = messages.map(m => `[${m.role}] ${m.content}`).join('\n\n');
-      const res = await fetch(`https://text.pollinations.ai/${encodeURIComponent(prompt)}?model=${model}`, {
-        method: 'GET'
-      });
-      if (!res.ok) throw new Error('Pollinations API error: ' + res.status);
-      return await res.text();
-    }
-  } catch (e) {
-    console.error('AI Error:', e);
-    // Fallback to Pollinations GET
-    try {
-      const res = await fetch(`https://text.pollinations.ai/${encodeURIComponent(userMsg)}?model=openai`);
-      return await res.text();
-    } catch(e2) {
-      return '⚠️ مشكل فالاتصال بالـ AI. جرّب آخر مرة.';
-    }
+      if (res.ok) {
+        const data = await res.json();
+        return data.choices[0].message.content;
+      }
+    } catch (e) { console.error('Groq error:', e); }
   }
+
+  // Pollinations.ai anonymous GET (free, no key needed)
+  try {
+    const prompt = 'You are Zin AI, a powerful Moroccan Darija assistant. Respond naturally and concisely.\n\nUser: ' + userMsg;
+    const res = await fetch('https://text.pollinations.ai/' + encodeURIComponent(prompt), {
+      method: 'GET',
+      headers: { 'Accept': 'text/plain' }
+    });
+    if (res.ok) {
+      const text = await res.text();
+      if (text && text.length > 5 && !text.includes('error')) return text;
+    }
+  } catch (e) { console.error('Pollinations error:', e); }
+
+  // Pollinations POST (OpenAI-compatible, anonymous)
+  try {
+    const res = await fetch('https://text.pollinations.ai/openai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages, model: 'openai', temperature: 0.7 })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.choices && data.choices[0]) return data.choices[0].message.content;
+    }
+  } catch (e) { console.error('Pollinations POST error:', e); }
+
+  // Smart fallback — keyword-based responses
+  return smartFallback(userMsg);
+}
+
+function smartFallback(msg) {
+  const m = msg.toLowerCase();
+  if (m.includes('مرحبا') || m.includes('سلام') || m.includes('اهلا') || m.includes('hi') || m.includes('hello'))
+    return 'أهلا وسهلا! 🎉 أنا Zin AI، مركز التحكم الذكي ديالك. نقدر ن:\n\n📱 نصيفط رسائل واتساب\n🔍 نفحص التطبيقات ديالك\n📊 نحلل الخدمات ونديك نصائح\n📧 نقرا ونصيفط إيميلات\n\nقول ليا شنو بغيتي ندير ليك!';
+  if (m.includes('شنو') || m.includes('ماذا') || m.includes('what'))
+    return 'أنا Zin AI Hub — مركز التحكم الذكي. كنتحكم فكل خدماتك: واتساب، التطبيقات، الإيميل، وكنحلل كل شي ونديك نصائح. شنو بغيتي ندير؟';
+  if (m.includes('شكرا') || m.includes('thanks') || m.includes('thank'))
+    return 'لا شكر على واجب! 😊 أنا هنا باش نعاونك فأي وقت.';
+  if (m.includes('عسل') || m.includes('honey') || m.includes('متجر'))
+    return 'متجر العسل المغرب البلدي 🍯 خدام مزيان! تقدر تصيفط رسائل واتساب للزبناء باش تزيد المبيعات. بغيتي نصيفط رسالة دبروموشن؟';
+  if (m.includes('لعبة') || m.includes('game') || m.includes('لعاب'))
+    return 'عندك Subway Runner 3D و Speed Rush 3D، جوج ألعاب كاملة وخدامين على GitHub Pages. بغيتي نزيد شي ميزة فاللعبة؟';
+  if (m.includes('نصيحة') || m.includes('اقتراح') || m.includes('advice') || m.includes('tip'))
+    return '💡 نصائح ليك:\n1. زيد بروموشن لمتجر العسل فالآخر الشهر\n2. صحّح أي تطبيق معطل\n3. استعمل AI باش تصيفط رسائل أوتوماتيك\n4. تابع أداء التطبيقات بانتظام';
+  return 'واخا! أنا Zin AI Hub، مركز التحكم الذكي. تقدر:\n📱 تصيفط واتساب\n🔍 تفحص التطبيقات\n📊 تحلل الخدمات\n💬 تسولني أي سؤال\n\nشنو بغيتي ندير؟';
 }
 
 async function sendChat() {
