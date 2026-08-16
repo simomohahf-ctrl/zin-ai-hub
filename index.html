@@ -224,6 +224,9 @@ padding-bottom:env(safe-area-inset-bottom)}
 <div class="view" id="view-whatsapp">
 <div class="card">
 <div class="card-title"><div class="card-icon" style="background:rgba(34,197,94,.15)">📱</div>إرسال رسالة واتساب</div>
+<div id="wa-setup-hint" style="display:none;background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.15);border-radius:10px;padding:10px;margin-bottom:10px;font-size:12px;color:#fbbf24;line-height:1.6">
+⚠️ خاصك CallMeBot API Key باش تصيفط. سير لـ الإعدادات وتبع الخطوات.
+</div>
 <div class="wa-form">
 <input type="text" class="wa-input" id="wa-to" placeholder="رقم الهاتف (مع رمز الدولة)" inputmode="tel" value="212680960570">
 <textarea class="wa-input wa-textarea" id="wa-body" placeholder="الرسالة..."></textarea>
@@ -250,16 +253,21 @@ padding-bottom:env(safe-area-inset-bottom)}
 <!-- SETTINGS -->
 <div class="view" id="view-settings">
 <div class="card">
-<div class="card-title"><div class="card-icon" style="background:rgba(34,197,94,.15)">📱</div>UltraMsg — واتساب</div>
+<div class="card-title"><div class="card-icon" style="background:rgba(34,197,94,.15)">📱</div>واتساب — CallMeBot (مجاني)</div>
 <div class="set-group">
-<div class="set-label">Instance ID</div>
-<input type="text" class="set-input" id="set-instance" placeholder="instance186208" value="instance186208">
+<div class="set-label">CallMeBot API Key</div>
+<input type="text" class="set-input" id="set-callmebot" placeholder="API Key من CallMeBot">
 </div>
-<div class="set-group">
-<div class="set-label">Token</div>
-<input type="text" class="set-input" id="set-token" placeholder="Token" value="kj3lhofu5wd7c6di">
+<div class="gmail-setup" style="background:rgba(34,197,94,.06);border-color:rgba(34,197,94,.15)">
+<h4 style="color:#22c55e">📋 كيفاش تاخد المفتاح (مجاني 100%):</h4>
+<ol style="font-size:12px;color:#94a3b8;line-height:1.8;padding-right:16px">
+<li>دخل لـ callmebot.com من هاتفك</li>
+<li>سيفط لرقم ديال CallMeBot: I allow callmebot to send me messages</li>
+<li>غادي يصيفط ليك API Key فالواتساب</li>
+<li>نسخ المفتاح وحطو هنا فوق</li>
+<li>اضغط حفظ — واتساب غادي يخدم مجانا!</li>
+</ol>
 </div>
-<div class="set-hint">احتفظ بهذه المعلومات. تستخدم لإرسال رسائل واتساب عبر UltraMsg API.</div>
 </div>
 
 <div class="card">
@@ -342,6 +350,7 @@ let settings = {
   groqKey: '',
   gmailId: '',
   pin: '1234',
+  callmebotKey: '',
 };
 let stats = { msgsSent: 0, chats: 0 };
 let chatHistory = [];
@@ -408,8 +417,7 @@ function initApp() {
   renderWaLog();
 
   // Settings inputs
-  document.getElementById('set-instance').value = settings.instance;
-  document.getElementById('set-token').value = settings.token;
+  if (document.getElementById('set-callmebot')) document.getElementById('set-callmebot').value = settings.callmebotKey || '';
   document.getElementById('set-model').value = settings.model;
   document.getElementById('set-groq-key').value = settings.groqKey;
   document.getElementById('set-gmail-id').value = settings.gmailId;
@@ -657,6 +665,7 @@ function addChatMsg(type, text) {
 // WHATSAPP (UltraMsg)
 // ============================================================
 async function sendWhatsApp() {
+  if (!settings.callmebotKey) { toast('سير لـ الإعدادات وحط CallMeBot API Key', 'err'); return; }
   const to = document.getElementById('wa-to').value.trim().replace(/\D/g, '');
   const body = document.getElementById('wa-body').value.trim();
   if (!to || !body) { toast('عمّر الرقم والرسالة', 'err'); return; }
@@ -678,23 +687,41 @@ async function sendWhatsApp() {
 }
 
 async function sendWhatsAppAPI(to, body) {
+  // Try CallMeBot (free) via backend proxy
+  const apikey = settings.callmebotKey || '';
+  if (!apikey) {
+    return { success: false, error: 'خاصك CallMeBot API Key — سير لـ الإعدادات' };
+  }
   try {
-    const url = `https://api.ultramsg.com/${settings.instance}/messages/chat`;
-    const res = await fetch(url, {
+    const proxyUrl = 'https://api.base44.com/api/backend-functions/invoke/sendWAFree';
+    const res = await fetch(proxyUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: settings.token, to, body })
+      body: JSON.stringify({ phone: to, text: body, apikey })
     });
     const data = await res.json();
-    if (data.sent || data.success || res.ok) {
+    if (data.success) {
       stats.msgsSent++;
       saveStatsLS();
       document.getElementById('stat-msgs').textContent = stats.msgsSent;
       return { success: true };
     }
-    return { success: false, error: data.error || data.message || 'خطأ غير معروف' };
+    return { success: false, error: data.data || data.error || 'فشل الإرسال' };
   } catch (e) {
-    return { success: false, error: e.message };
+    // Fallback: try direct CallMeBot API
+    try {
+      const url = 'https://api.callmebot.com/whatsapp.php?phone=' + encodeURIComponent(to) + '&text=' + encodeURIComponent(body) + '&apikey=' + encodeURIComponent(apikey);
+      const res2 = await fetch(url);
+      const text = await res2.text();
+      if (res2.ok && !text.includes('ERROR')) {
+        stats.msgsSent++; saveStatsLS();
+        document.getElementById('stat-msgs').textContent = stats.msgsSent;
+        return { success: true };
+      }
+      return { success: false, error: text.substring(0, 100) };
+    } catch(e2) {
+      return { success: false, error: e.message };
+    }
   }
 }
 
@@ -914,8 +941,7 @@ try { gmailToken = localStorage.getItem('zin-gmail-token'); } catch(e) {}
 // SETTINGS SAVE
 // ============================================================
 function saveSettings() {
-  settings.instance = document.getElementById('set-instance').value.trim() || 'instance186208';
-  settings.token = document.getElementById('set-token').value.trim();
+  settings.callmebotKey = document.getElementById('set-callmebot') ? document.getElementById('set-callmebot').value.trim() : '';
   settings.model = document.getElementById('set-model').value;
   settings.groqKey = document.getElementById('set-groq-key').value.trim();
   settings.gmailId = document.getElementById('set-gmail-id').value.trim();
@@ -955,8 +981,7 @@ window.addEventListener('resize', () => {
 
 // Auto-fill settings on load
 window.addEventListener('load', () => {
-  document.getElementById('set-instance').value = settings.instance;
-  document.getElementById('set-token').value = settings.token;
+  if (document.getElementById('set-callmebot')) document.getElementById('set-callmebot').value = settings.callmebotKey || '';
 });
 </script>
 </body>
